@@ -1,0 +1,40 @@
+# Stack complète Scribe : API + Postgres + Redis + worker asynchrone.
+# Démarrage : docker compose up --build  →  http://localhost:8000
+services:
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://scribe:scribe@db:5432/scribe
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+  worker:
+    build: ./backend
+    command: python -m app.workers.worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://scribe:scribe@db:5432/scribe
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scribe
+      POSTGRES_PASSWORD: scribe
+      POSTGRES_DB: scribe
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  pgdata:

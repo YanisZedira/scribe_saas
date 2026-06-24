@@ -20,36 +20,52 @@ Teams/Meet/Zoom ─ Vexa ─┘                         (souverain, local)
 
 ---
 
-## ✅ Pré-requis (machine du collègue)
+## ✅ Ce qu'il faut sur la machine (à préparer AVANT)
 
-- **GPU NVIDIA** (≥ 8 Go VRAM conseillé) + pilotes à jour
-- **Docker** + **NVIDIA Container Toolkit** (pour exposer le GPU aux conteneurs)
-- ~15 Go de disque libre (modèles Whisper large-v3 + Qwen)
+Une machine **Linux (Ubuntu 22.04+ recommandé)** avec :
 
-> Vérifier le GPU dans Docker : `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`
+1. **Un GPU NVIDIA** (≥ 8 Go VRAM conseillé) avec les **pilotes NVIDIA installés**
+   (vérifie : la commande `nvidia-smi` doit afficher ta carte).
+2. **`git`** et **`curl`** (préinstallés sur Ubuntu, sinon `sudo apt install -y git curl`).
+3. **~15 Go de disque libre** (modèles Whisper large-v3 + Qwen 2.5).
+4. Une connexion Internet (le 1er lancement télécharge les images et les modèles).
+
+> **Tu n'as PAS besoin d'installer Docker, le toolkit GPU, Python ou Node toi-même :
+> le script d'installation s'en charge.**
+>
+> ℹ️ Sur **Windows**, installe d'abord **WSL2 + Ubuntu** (`wsl --install`) et travaille
+> dans le terminal Ubuntu : la suite est identique.
 
 ---
 
-## 🚀 Démarrage en UNE commande
+## 🚀 Installation & lancement — UNE SEULE COMMANDE
+
+Copie-colle ceci dans le terminal. Ça installe **absolument tout** (Docker,
+toolkit GPU, conteneurs, modèles IA) et lance la SaaS :
 
 ```bash
-git clone https://github.com/YanisZedira/scribe_saas.git
-cd scribe_saas/scribe-v2
-cp .env.example .env            # (optionnel) renseigner VEXA_API_KEY pour Teams/Meet
-docker compose up --build
+git clone https://github.com/YanisZedira/scribe_saas.git && cd scribe_saas/scribe-v2 && sudo bash install.sh
 ```
 
-Puis, une seule fois, télécharger le modèle LLM :
+C'est tout. Au bout de quelques minutes (build + téléchargement des modèles), le
+script affiche les adresses. Ouvre alors :
 
-```bash
-docker compose exec ollama ollama pull qwen2.5:7b-instruct
-```
-
-Accès :
-- **App** : http://localhost:3000
+- **Application** : http://localhost:3000
 - **API / docs** : http://localhost:8000/docs
-- **Whisper** : http://localhost:9000/health
-- **Santé globale** : http://localhost:8000/api/health
+- **Santé** : http://localhost:8000/api/health
+
+### (Optionnel) Activer le bot Teams/Meet/Zoom
+Avant de lancer, mets ta clé Vexa dans `.env` (`cp .env.example .env` puis édite
+`VEXA_API_KEY=`). Sans clé, les 2 autres modes (dictaphone + salle Scribe)
+fonctionnent à 100 %.
+
+### Commandes utiles ensuite
+```bash
+docker compose logs -f     # suivre les logs
+docker compose down        # tout arrêter
+docker compose up -d       # relancer
+```
+Ou via le Makefile : `make start`, `make stop`, `make logs`.
 
 ---
 

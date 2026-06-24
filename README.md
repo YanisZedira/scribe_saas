@@ -1,65 +1,68 @@
-# 🎙️ Scribe — Assistant de réunion intelligent (souverain, self-hosted)
+# 🎙️ Scribe — Assistant de réunion (Teams → Compte-rendu IA)
 
-Capte une réunion (présentiel, salle visio intégrée, ou bot Teams/Meet/Zoom),
-la **transcrit**, identifie **qui parle**, puis génère **compte-rendu, décisions
-et actions** — le tout **100 % auto-hébergé** (aucune donnée ne sort de ton infra).
+Un bot **rejoint ta réunion Teams**, la **transcrit** (via Vexa), puis un **LLM**
+la résume, liste les **décisions** et les **actions**, et alimente ton **dashboard**.
 
-| Transcription | Analyse IA | Visio interne | Bot externe |
-|---|---|---|---|
-| Faster-Whisper large-v3 (GPU) | Qwen 2.5 (local, Ollama) | LiveKit | Vexa (Teams/Meet/Zoom) |
+- **Backend** : FastAPI (`server/`)
+- **Frontend** : React + Vite (`web/`)
+- **Transcription** : Vexa (rejoint Teams/Meet/Zoom, STT inclus)
+- **Analyse** : LLM compatible OpenAI (Mistral par défaut)
+- Pas de Docker, pas de GPU. Deux commandes pour lancer.
 
 ---
 
-## 🚀 Installation & lancement — UNE SEULE COMMANDE
+## 🚀 Lancer l'app
 
-> **Pré-requis** : une machine **Linux** avec un **GPU NVIDIA** (pilotes installés —
-> `nvidia-smi` doit fonctionner) + `git` et `curl`. Sur **Windows**, installe
-> d'abord WSL2 + Ubuntu (`wsl --install`) et travaille dans le terminal Ubuntu.
-> Tu n'as **rien d'autre** à installer (Docker, GPU toolkit, Python, Node, modèles
-> IA : le script s'en charge). **Aucune clé API requise** pour la démo.
-
-Copie-colle ceci dans le terminal :
-
+### 1. Backend (terminal 1)
 ```bash
-git clone https://github.com/YanisZedira/scribe_saas.git && cd scribe_saas/scribe-v2 && sudo bash install.sh
+cd server
+python -m venv .venv
+.venv\Scripts\activate          # Windows  (macOS/Linux : source .venv/bin/activate)
+pip install -r requirements.txt
+copy .env.example .env          # (macOS/Linux : cp .env.example .env)
+uvicorn app.main:app --reload --port 8000
 ```
 
-Au bout de quelques minutes, ouvre :
+### 2. Frontend (terminal 2)
+```bash
+cd web
+npm install
+npm run dev
+```
 
-- **Application** → http://localhost:3000
-- **API / docs** → http://localhost:8000/docs
+Ouvre **http://localhost:5173** → inscris-toi → **Nouvelle réunion** → colle un lien
+Teams → **Envoyer le bot** → à la fin **Terminer & générer le compte-rendu**.
 
-👉 **Guide détaillé, dépannage et options : [`scribe-v2/README.md`](scribe-v2/README.md)**
-
----
-
-## 🧪 Les 3 modes de captation
-
-1. **Dictaphone** — réunion en présentiel (micro). *Aucune clé.*
-2. **Salle Scribe** — visioconférence intégrée (LiveKit), transcription en direct. *Aucune clé.*
-3. **Bot externe** — rejoint **Teams / Google Meet / Zoom** via un lien. *Nécessite une clé Vexa gratuite (sinon mode démo).*
+> **Sans clé API**, l'app tourne en **mode démo** (transcription + analyse d'exemple),
+> tout le parcours est navigable. Pour le vrai fonctionnement, voir ci-dessous.
 
 ---
 
-## 🗂️ Structure du dépôt
+## 🔑 Clés (pour le mode réel) — dans `server/.env`
 
-| Dossier | Contenu |
-|---|---|
-| **`scribe-v2/`** | ⭐ **La version finale** (self-hosted) — c'est ici qu'on installe |
-| `scribe-v2/backend/` | API FastAPI + pipeline IA + LiveKit Agent |
-| `scribe-v2/frontend/` | Front Next.js (dashboard, salle de réunion, compte-rendu) |
-| `scribe-v2/whisper-service/` | Micro-service de transcription GPU (Whisper large-v3) |
-| `docs/` | Dossier de cadrage, specs/archi, benchmark, RGPD, business model |
-| `benchmark/` | Tableau comparatif des API + scripts de mesure |
+| Clé | À quoi ça sert | Où l'obtenir |
+|---|---|---|
+| `VEXA_API_KEY` | Le bot rejoint Teams **et** transcrit | https://vexa.ai/account (gratuit) |
+| `LLM_API_KEY` | Résumé / décisions / actions | https://console.mistral.ai/api-keys |
+
+Après les avoir renseignées, relancer le backend.
 
 ---
 
-## 🔒 Souveraineté / RGPD
+## 🧱 Fonctionnement
 
-Tout s'exécute sur ton infrastructure (transcription, LLM, visio). Consentement
-bloquant, droit à l'effacement. Pour un client comme Suez : les **mêmes conteneurs**
-se déploient on-premise → aucune donnée ne quitte l'entreprise.
+```
+Lien Teams ─► POST /api/meetings ─► Vexa envoie un bot
+                                         │ (la réunion a lieu)
+"Terminer" ─► POST /api/meetings/{id}/finalize
+                  ├─ Vexa renvoie la transcription
+                  └─ LLM ─► { résumé, décisions, actions, points clés, thèmes }
+                                         │
+                                   Dashboard utilisateur
+```
 
-## 📄 Licence
-
-Projet pédagogique — RNCP 36146 (Concepteur développeur de solutions digitales).
+## 📁 Structure
+```
+server/   FastAPI  (app/: main, routes, models, auth, vexa, llm, db, config)
+web/      React + Vite  (src/: App.jsx, api.js, index.css)
+```

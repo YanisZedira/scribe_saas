@@ -1,41 +1,25 @@
-# ─── Python ──────────────────────────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.egg-info/
-.eggs/
-build/
-dist/
-
-# ─── Environnements virtuels ─────────────────────────────────────────────
 .venv/
 venv/
-env/
-ENV/
+*.egg-info/
 
-# ─── Secrets & base de données ───────────────────────────────────────────
+# Secrets & DB
 .env
 .env.*
 !.env.example
 *.db
 *.sqlite3
-scribe.db
 
-# ─── Tests & couverture ──────────────────────────────────────────────────
-.pytest_cache/
-.coverage
-coverage.xml
-htmlcov/
-.mypy_cache/
-.ruff_cache/
+# Node / Vite
+node_modules/
+dist/
+.vite/
 
-# ─── OS / IDE ────────────────────────────────────────────────────────────
+# OS / IDE
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-
-# ─── Divers ──────────────────────────────────────────────────────────────
-/tmp/
 *.log
-node_modules/

@@ -1,0 +1,83 @@
+# ───────────────────────────────────────────────────────────────────────────
+# Scribe v2 — stack SELF-HOSTED complète (souveraine).
+# Lancement :  docker compose up --build
+#   - Front     : http://localhost:3000
+#   - API       : http://localhost:8000/docs
+#   - LiveKit   : ws://localhost:7880
+#   - Whisper   : http://localhost:9000/health   (GPU)
+#   - Ollama    : http://localhost:11434         (Qwen 2.5)
+#
+# Pré-requis GPU : NVIDIA + nvidia-container-toolkit installés sur l'hôte.
+# Après le 1er démarrage :  docker compose exec ollama ollama pull qwen2.5:7b-instruct
+# ───────────────────────────────────────────────────────────────────────────
+services:
+
+  whisper-service:                       # STT GPU — Faster-Whisper large-v3
+    build: ./whisper-service
+    ports: ["9000:9000"]
+    environment:
+      WHISPER_MODEL: large-v3
+      WHISPER_DEVICE: cuda
+      WHISPER_COMPUTE_TYPE: float16
+      STT_API_KEY: ${STT_API_KEY:-scribe-stt-secret}
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+  ollama:                                # LLM souverain — Qwen 2.5 (GPU si dispo)
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: ["ollama:/root/.ollama"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+  livekit:                               # Serveur visio (salle Scribe)
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports: ["7880:7880", "7881:7881", "7882:7882/udp"]
+
+  backend:                               # API FastAPI
+    build: ./backend
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: sqlite:////data/scribe.db
+      CORS_ORIGINS: http://localhost:3000
+      QWEN_BASE_URL: http://ollama:11434/v1
+      QWEN_MODEL: qwen2.5:7b-instruct
+      STT_ENDPOINT_URL: http://whisper-service:9000
+      STT_ENDPOINT_KEY: ${STT_API_KEY:-scribe-stt-secret}
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: secret
+      # Vexa = bot Teams/Meet/Zoom. Cloud par défaut ; pour le 100% self-host,
+      # déployer Vexa séparément (voir README) et mettre son URL locale ici.
+      VEXA_API_URL: ${VEXA_API_URL:-https://api.cloud.vexa.ai}
+      VEXA_API_KEY: ${VEXA_API_KEY:-}
+    volumes: ["scribe_data:/data"]
+    depends_on: [ollama, whisper-service, livekit]
+
+  agent:                                 # LiveKit Agent (transcription temps réel)
+    build: ./backend
+    command: python livekit_agent.py start
+    environment:
+      SCRIBE_API_URL: http://backend:8000
+      STT_ENDPOINT_URL: http://whisper-service:9000
+      STT_ENDPOINT_KEY: ${STT_API_KEY:-scribe-stt-secret}
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: secret
+    depends_on: [livekit, whisper-service, backend]
+
+  frontend:                              # UI Next.js
+    build: ./frontend
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8000
+    depends_on: [backend]
+
+volumes:
+  ollama:
+  scribe_data:

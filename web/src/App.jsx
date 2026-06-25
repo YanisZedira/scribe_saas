@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api, setToken, isAuthed } from "./api";
 
 const avatarColor = (s) => ["#10b981","#8b5cf6","#38bdf8","#f59e0b","#fb7185","#34d399"][(s||"?").charCodeAt(0)%6];
@@ -11,7 +11,6 @@ export default function App() {
   const [arg, setArg] = useState(null);
 
   useEffect(() => { if (isAuthed()) api.me().then(setUser).catch(() => { setToken(null); setAuthed(false); }); }, []);
-
   if (!authed) return <Auth onDone={async () => { setUser(await api.me()); setAuthed(true); }} />;
 
   const go = (p, a = null) => { setArg(a); setPage(p); };
@@ -64,7 +63,7 @@ function Auth({ onDone }) {
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ fontSize: 40 }}>🎙️</div>
           <h1 style={{ fontSize: 28 }}>Scribe</h1>
-          <p style={{ color: "var(--muted)", marginTop: 4 }}>Vos réunions Teams, <span className="grad">résumées automatiquement</span>.</p>
+          <p style={{ color: "var(--muted)", marginTop: 4 }}>Vos réunions, <span className="grad">résumées automatiquement</span>.</p>
         </div>
         <div className="card" style={{ padding: 26 }}>
           <div style={{ display: "flex", gap: 8, background: "#0d1320", padding: 5, borderRadius: 12, marginBottom: 18 }}>
@@ -125,41 +124,24 @@ function Dashboard({ go }) {
 
 function NewMeeting({ go }) {
   const [title, setTitle] = useState(""); const [url, setUrl] = useState("");
-  const [step, setStep] = useState("form"); const [err, setErr] = useState(""); const [mid, setMid] = useState(null);
-
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const create = async () => {
-    setErr("");
-    try { const m = await api.createMeeting(title || "Réunion Teams", url.trim()); setMid(m.id); setStep("joined"); }
-    catch (e) { setErr(e.message); }
+    setErr(""); setBusy(true);
+    try { const m = await api.createMeeting(title || "Réunion", url.trim()); go("meeting", m.id); }
+    catch (e) { setErr(e.message); setBusy(false); }
   };
-  const finalize = async () => {
-    setStep("processing");
-    try { await api.finalize(mid); go("meeting", mid); }
-    catch (e) { setErr(e.message); setStep("joined"); }
-  };
-
   return (
     <div className="fade" style={{ maxWidth: 620 }}>
-      <Header title="Nouvelle réunion" sub="Collez le lien de la réunion Teams" />
-      {step === "form" && (
-        <div className="card" style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
-          <input className="input" placeholder="Titre (optionnel)" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <input className="input" placeholder="https://teams.live.com/meet/…  (ou Meet / Zoom)" value={url} onChange={(e) => setUrl(e.target.value)} />
-          <p style={{ fontSize: 12.5, color: "var(--faint)" }}>🔒 Assurez-vous que les participants consentent à l'enregistrement. Un bot « Scribe » rejoindra la réunion et la transcrira.</p>
-          {err && <div style={{ color: "var(--rose)", fontSize: 13 }}>{err}</div>}
-          <button className="btn btn-primary" style={{ justifyContent: "center" }} disabled={!url.trim()} onClick={create}>Envoyer le bot →</button>
-        </div>
-      )}
-      {step === "joined" && (
-        <div className="card" style={{ padding: 30, textAlign: "center" }}>
-          <div style={{ fontSize: 36 }}>🤖</div>
-          <h3 style={{ margin: "10px 0 6px" }}>Le bot Scribe a rejoint la réunion</h3>
-          <p style={{ color: "var(--muted)", marginBottom: 18, fontSize: 14 }}>Il transcrit en direct. Cliquez ci-dessous une fois la réunion terminée pour générer le compte-rendu.</p>
-          {err && <div style={{ color: "var(--rose)", fontSize: 13, marginBottom: 10 }}>{err}</div>}
-          <button className="btn btn-primary" style={{ margin: "0 auto" }} onClick={finalize}>Terminer & générer le compte-rendu</button>
-        </div>
-      )}
-      {step === "processing" && <Center><div className="spinner" /><p style={{ color: "var(--muted)", marginTop: 14 }}>Récupération du transcript & analyse IA…</p></Center>}
+      <Header title="Nouvelle réunion" sub="Collez le lien Google Meet (ou Teams / Zoom)" />
+      <div className="card" style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+        <input className="input" placeholder="Titre (optionnel)" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <input className="input" placeholder="https://meet.google.com/abc-defg-hij" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <p style={{ fontSize: 12.5, color: "var(--faint)" }}>🤖 Un bot « Scribe » rejoint la réunion et l'écoute. À la fin, le compte-rendu apparaît automatiquement. 🔒 Informez les participants de l'enregistrement.</p>
+        {err && <div style={{ color: "var(--rose)", fontSize: 13 }}>{err}</div>}
+        <button className="btn btn-primary" style={{ justifyContent: "center" }} disabled={!url.trim() || busy} onClick={create}>
+          {busy ? "Envoi du bot…" : "Envoyer le bot dans la réunion →"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -190,49 +172,91 @@ function Meetings({ go }) {
 }
 
 function MeetingDetail({ id, go }) {
-  const [m, setM] = useState(null); const [tab, setTab] = useState("cr");
-  useEffect(() => { api.meeting(id).then(setM).catch(() => {}); }, [id]);
+  const [m, setM] = useState(null); const [tab, setTab] = useState("cr"); const [err, setErr] = useState("");
+  const timer = useRef(null);
+
+  const load = async () => { try { setM(await api.meeting(id)); } catch (e) { setErr(e.message); } };
+  useEffect(() => {
+    load();
+    timer.current = setInterval(load, 4000);   // polling auto
+    return () => clearInterval(timer.current);
+  }, [id]);
+  useEffect(() => {
+    if (m && (m.status === "done" || m.status === "failed")) clearInterval(timer.current);
+  }, [m]);
+
   if (!m) return <Center><div className="spinner" /></Center>;
+  const live = m.status === "recording" || m.status === "joining";
+  const analyzing = m.status === "analyzing";
   const del = async () => { if (confirm("Supprimer cette réunion ?")) { await api.remove(id); go("meetings"); } };
+  const finalize = async () => { try { setM(await api.finalize(id)); } catch (e) { setErr(e.message); } };
+
   return (
     <div className="fade">
       <button className="btn btn-ghost" style={{ padding: "7px 13px", fontSize: 13, marginBottom: 14 }} onClick={() => go("meetings")}>← Mes réunions</button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, marginBottom: 18 }}>
         <div><h1 style={{ fontSize: 24 }}>{m.title}</h1>
-          <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 14 }}>{m.platform} · {toneIcon(m.sentiment)} {m.sentiment || ""} {m.error ? "· ⚠️ " + m.error : ""}</div></div>
+          <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 14 }}>{m.platform} · {m.sentiment ? toneIcon(m.sentiment) + " " + m.sentiment : ""} <StatusChip status={m.status} /></div></div>
         <button className="btn btn-ghost" style={{ fontSize: 13, color: "var(--rose)" }} onClick={del}>🗑️ Supprimer</button>
       </div>
-      <div style={{ display: "flex", gap: 6, background: "#0d1320", padding: 5, borderRadius: 12, width: "fit-content", marginBottom: 16 }}>
-        {[["cr", "📝 Compte-rendu"], ["tr", "📜 Transcription"]].map(([k, l]) => (
-          <button key={k} className="btn" style={{ background: tab===k?"#1c2740":"transparent", padding: "8px 14px" }} onClick={() => setTab(k)}>{l}</button>
-        ))}
-      </div>
-      {tab === "cr" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Section title="Résumé">{m.summary || <Muted>Pas encore analysé.</Muted>}</Section>
-          {!!m.decisions?.length && <Section title="📌 Décisions">{m.decisions.map((d, i) => <li key={i} style={{ marginLeft: 18, marginBottom: 4 }}>{d}</li>)}</Section>}
-          {!!m.actions?.length && <Section title="⚡ Actions">{m.actions.map((a, i) => (
-            <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid #1b2438", fontSize: 14 }}><b>{a.responsable || "—"}</b> · {a.tache}{a.echeance ? <span style={{ color: "var(--faint)" }}> · {a.echeance}</span> : ""}</div>
-          ))}</Section>}
-          {!!m.key_points?.length && <Section title="🔑 Points clés">{m.key_points.map((p, i) => <li key={i} style={{ marginLeft: 18, marginBottom: 4 }}>{p}</li>)}</Section>}
-          {!!m.topics?.length && <Section title="🏷️ Thèmes"><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{m.topics.map((t, i) => <span key={i} className="chip" style={{ color: "#a78bfa", background: "#8b5cf614", border: "1px solid #8b5cf633" }}>{t}</span>)}</div></Section>}
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 22, maxHeight: 560, overflowY: "auto" }}>
-          {m.transcript ? m.transcript.split("\n").map((line, i) => {
-            const [who, ...rest] = line.split(":"); const text = rest.join(":");
-            return <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-              <span style={{ width: 30, height: 30, borderRadius: "50%", background: avatarColor(who), display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, color: "#04130d", flexShrink: 0 }}>{(who||"?").slice(0,2).toUpperCase()}</span>
-              <div style={{ fontSize: 14 }}><b>{who}</b><br />{text}</div></div>;
-          }) : <Muted>Aucune transcription.</Muted>}
+
+      {err && <div className="card" style={{ padding: 14, color: "var(--rose)", marginBottom: 14 }}>{err}</div>}
+
+      {/* État live : le bot écoute */}
+      {live && (
+        <div className="card" style={{ padding: 22, marginBottom: 16, textAlign: "center" }}>
+          <div style={{ fontSize: 30 }}>🔴</div>
+          <h3 style={{ margin: "8px 0 4px" }}>Le bot écoute la réunion…</h3>
+          <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 14 }}>Le compte-rendu se génère automatiquement à la fin. (Admettez le bot « Scribe » s'il est en salle d'attente.)</p>
+          <button className="btn btn-primary" style={{ margin: "0 auto" }} onClick={finalize}>Terminer maintenant & générer le CR</button>
+          {m.transcript && (
+            <div style={{ marginTop: 16, textAlign: "left", maxHeight: 200, overflowY: "auto", fontSize: 13, color: "var(--muted)", background: "#0d1320", borderRadius: 12, padding: 14 }}>
+              <b style={{ color: "var(--faint)" }}>Aperçu en direct :</b><br />{m.transcript}
+            </div>
+          )}
         </div>
       )}
+      {analyzing && <div className="card" style={{ padding: 22, marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}><div className="spinner" /> Analyse de la réunion par l'IA…</div>}
+
+      {/* Résultat */}
+      {m.status === "done" && (
+        <>
+          <div style={{ display: "flex", gap: 6, background: "#0d1320", padding: 5, borderRadius: 12, width: "fit-content", marginBottom: 16 }}>
+            {[["cr", "📝 Compte-rendu"], ["tr", "📜 Transcription"]].map(([k, l]) => (
+              <button key={k} className="btn" style={{ background: tab===k?"#1c2740":"transparent", padding: "8px 14px" }} onClick={() => setTab(k)}>{l}</button>
+            ))}
+          </div>
+          {tab === "cr" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <Section title="Résumé">{m.summary}</Section>
+              {!!m.actions?.length && <Section title="⚡ Prochaines actions">{m.actions.map((a, i) => (
+                <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid #1b2438", fontSize: 14 }}>
+                  <b>{a.responsable || "—"}</b> · {a.action || a.tache}{a.echeance ? <span style={{ color: "var(--faint)" }}> · {a.echeance}</span> : ""}
+                  {a.priorite ? <span className="chip" style={{ marginLeft: 8, fontSize: 11, color: a.priorite==="haute"?"#fb7185":"#f59e0b" }}>{a.priorite}</span> : null}
+                </div>
+              ))}</Section>}
+              {!!m.decisions?.length && <Section title="📌 Décisions">{m.decisions.map((d, i) => <li key={i} style={{ marginLeft: 18, marginBottom: 4 }}>{d}</li>)}</Section>}
+              {!!m.key_points?.length && <Section title="🔑 Points clés">{m.key_points.map((p, i) => <li key={i} style={{ marginLeft: 18, marginBottom: 4 }}>{p}</li>)}</Section>}
+              {!!m.topics?.length && <Section title="🏷️ Thèmes"><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{m.topics.map((t, i) => <span key={i} className="chip" style={{ color: "#a78bfa", background: "#8b5cf614", border: "1px solid #8b5cf633" }}>{t}</span>)}</div></Section>}
+            </div>
+          ) : (
+            <div className="card" style={{ padding: 22, maxHeight: 560, overflowY: "auto" }}>
+              {m.transcript ? m.transcript.split("\n").map((line, i) => {
+                const [who, ...rest] = line.split(":"); const text = rest.join(":");
+                return <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                  <span style={{ width: 30, height: 30, borderRadius: "50%", background: avatarColor(who), display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, color: "#04130d", flexShrink: 0 }}>{(who||"?").slice(0,2).toUpperCase()}</span>
+                  <div style={{ fontSize: 14 }}><b>{who}</b><br />{text}</div></div>;
+              }) : <Muted>Aucune transcription.</Muted>}
+            </div>
+          )}
+        </>
+      )}
+      {m.status === "failed" && <div className="card" style={{ padding: 22, color: "var(--rose)" }}>Échec : {m.error}</div>}
     </div>
   );
 }
 
-// ─── Petits composants ───────────────────────────────────────────────────
-const Center = ({ children }) => <div style={{ display: "grid", placeItems: "center", padding: 60 }}>{children}</div>;
+const Center = ({ children }) => <div style={{ display: "grid", placeItems: "center", padding: 60, flexDirection: "column", gap: 12 }}>{children}</div>;
 const Muted = ({ children }) => <span style={{ color: "var(--faint)" }}>{children}</span>;
 const Header = ({ title, sub, children }) => (
   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
@@ -244,7 +268,7 @@ const Section = ({ title, children }) => (
   <div className="card" style={{ padding: 22 }}><h3 style={{ fontSize: 15, marginBottom: 10 }}>{title}</h3><div style={{ fontSize: 14.5, lineHeight: 1.6 }}>{children}</div></div>
 );
 function StatusChip({ status }) {
-  const map = { done: ["Terminé", "#10b981"], failed: ["Échec", "#fb7185"], recording: ["En cours", "#f59e0b"], analyzing: ["Analyse", "#38bdf8"], joining: ["Connexion", "#8b5cf6"] };
+  const map = { done: ["Terminé", "#10b981"], failed: ["Échec", "#fb7185"], recording: ["🔴 En écoute", "#f59e0b"], analyzing: ["Analyse IA", "#38bdf8"], joining: ["Connexion", "#8b5cf6"] };
   const [label, c] = map[status] || [status, "#64718c"];
-  return <span className="chip" style={{ color: c, background: c + "14", border: `1px solid ${c}33` }}>● {label}</span>;
+  return <span className="chip" style={{ color: c, background: c + "14", border: `1px solid ${c}33`, marginLeft: 6 }}>{label}</span>;
 }

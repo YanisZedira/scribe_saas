@@ -1,7 +1,6 @@
-"""Analyse LLM : transcription → JSON (résumé, décisions, actions, points, ton).
+"""Analyse LLM (Mistral) — transcription → JSON structuré. Réel, sans fallback.
 
-API compatible OpenAI (Mistral par défaut). Sans clé, un repli heuristique
-fournit une analyse simple pour que l'app reste fonctionnelle en démo.
+Si LLM_API_KEY est absent, lève une erreur explicite (aucune analyse factice).
 """
 
 from __future__ import annotations
@@ -14,32 +13,48 @@ import httpx
 
 from app.config import settings
 
+
+class LLMError(RuntimeError):
+    pass
+
+
 SYSTEM = (
-    "Tu es Scribe Analyst, un moteur d'analyse de réunions. À partir de la "
-    "TRANSCRIPTION (lignes 'Locuteur: texte'), tu renvoies UNIQUEMENT un objet "
-    "JSON valide, sans texte autour, avec EXACTEMENT ces clés :\n"
-    '{\n'
-    '  "titre": "string (<= 8 mots)",\n'
-    '  "resume": "synthèse fidèle en 3 à 5 phrases",\n'
+    "Tu es Scribe Analyst, un moteur d'analyse de réunions de niveau expert. "
+    "À partir de la TRANSCRIPTION (lignes « Locuteur: texte »), tu renvoies "
+    "UNIQUEMENT un objet JSON valide, sans texte ni Markdown autour, avec "
+    "EXACTEMENT ces clés :\n"
+    "{\n"
+    '  "titre": "titre court, <= 8 mots",\n'
+    '  "resume": "synthèse fidèle et fluide, 4 à 6 phrases",\n'
     '  "ton": "positif | neutre | négatif | tendu | constructif",\n'
     '  "themes": ["3 à 5 thèmes courts"],\n'
-    '  "points_cles": ["3 à 5 points marquants"],\n'
-    '  "decisions": ["décisions réellement actées"],\n'
-    '  "actions": [{"tache":"impératif","responsable":"nom ou Non assigné",'
-    '"echeance":"YYYY-MM-DD ou null"}]\n'
-    '}\n'
-    "RÈGLES : zéro invention ; si absent -> liste vide / null ; résous les dates "
-    "relatives (vendredi, lundi prochain, ce soir) par rapport à DATE_DU_JOUR ; "
-    "réponds dans la langue de la réunion."
+    '  "points_cles": ["3 à 6 points marquants, une phrase chacun"],\n'
+    '  "decisions": ["décisions réellement actées pendant la réunion"],\n'
+    '  "prochaines_actions": [\n'
+    '     {"action":"verbe à l\'impératif, claire et autoporteuse",\n'
+    '      "responsable":"nom du locuteur si identifiable, sinon Non assigné",\n'
+    '      "echeance":"YYYY-MM-DD si une date est dite, sinon null",\n'
+    '      "priorite":"basse | normale | haute"}\n'
+    "  ],\n"
+    '  "compte_rendu_md": "compte-rendu complet rédigé en Markdown (titre, '
+    'résumé, décisions, actions, points clés) prêt à être envoyé par e-mail"\n'
+    "}\n\n"
+    "RÈGLES STRICTES :\n"
+    "- ZÉRO invention : n'ajoute aucun fait, nom, date ou décision absent.\n"
+    "- Si une information manque : liste vide, ou \"Non assigné\", ou null.\n"
+    "- Une décision = un engagement acté ; une action = une tâche à faire ensuite.\n"
+    "- Résous les dates relatives (vendredi, lundi prochain, ce soir) par rapport "
+    "à DATE_DU_JOUR.\n"
+    "- Réponds dans la langue de la réunion."
 )
 
 
 def analyze(transcript: str) -> dict:
-    fallback = _fallback(transcript)
     if not settings.llm_api_key:
-        return fallback
+        raise LLMError("LLM_API_KEY manquant dans server/.env — requis (aucune analyse factice).")
+    user = (f"DATE_DU_JOUR: {date.today().isoformat()}\n\n"
+            f"TRANSCRIPTION:\n\"\"\"\n{transcript.strip()}\n\"\"\"")
     try:
-        user = f"DATE_DU_JOUR: {date.today().isoformat()}\n\nTRANSCRIPTION:\n{transcript}"
         r = httpx.post(
             f"{settings.llm_base_url}/chat/completions",
             headers={"Authorization": f"Bearer {settings.llm_api_key}",
@@ -49,38 +64,14 @@ def analyze(transcript: str) -> dict:
                                {"role": "user", "content": user}],
                   "temperature": 0.2,
                   "response_format": {"type": "json_object"}},
-            timeout=90)
-        r.raise_for_status()
-        content = r.json()["choices"][0]["message"]["content"]
-        s, e = content.find("{"), content.rfind("}")
-        data = json.loads(content[s:e + 1])
-        # complète les clés manquantes
-        for k, v in fallback.items():
-            data.setdefault(k, v)
-        return data
-    except Exception:  # noqa: BLE001 — dégrade proprement
-        return fallback
-
-
-def _fallback(transcript: str) -> dict:
-    """Analyse heuristique (sans LLM) — suffisante pour la démo."""
-    lines = [l for l in transcript.splitlines() if l.strip()]
-    decisions, actions = [], []
-    for line in lines:
-        low = line.lower()
-        text = line.split(":", 1)[-1].strip()
-        who = line.split(":", 1)[0].strip() if ":" in line else None
-        if "décision" in low or "on repousse" in low or "on valide" in low:
-            decisions.append(text)
-        if low.split(":", 1)[-1].strip().startswith("action") or "je m'en occupe" in low \
-                or "je vise" in low or "je prends" in low or "j'envoie" in low:
-            actions.append({"tache": text, "responsable": who, "echeance": None})
-    return {
-        "titre": "Compte-rendu de réunion",
-        "resume": " ".join(lines[:3])[:400] if lines else "Réunion sans contenu.",
-        "ton": "neutre",
-        "themes": ["Divers"],
-        "points_cles": [l.split(":", 1)[-1].strip() for l in lines[:4]],
-        "decisions": decisions,
-        "actions": actions,
-    }
+            timeout=120)
+    except httpx.HTTPError as exc:
+        raise LLMError(f"Mistral injoignable : {exc}") from exc
+    if r.status_code >= 400:
+        raise LLMError(f"Mistral {r.status_code}: {r.text[:300]}")
+    content = r.json()["choices"][0]["message"]["content"]
+    content = re.sub(r"^```(?:json)?|```$", "", content.strip(), flags=re.MULTILINE).strip()
+    s, e = content.find("{"), content.rfind("}")
+    if s == -1 or e == -1:
+        raise LLMError("Réponse LLM non-JSON.")
+    return json.loads(content[s:e + 1])

@@ -48,8 +48,9 @@ class Meeting(SQLModel, table=True):
     # Sorties
     transcript: str | None = None     # transcription complète (texte)
     summary: str | None = None        # résumé
+    cr_md: str | None = None          # compte-rendu écrit complet (Markdown)
     decisions_json: str | None = None  # liste de décisions (JSON)
-    actions_json: str | None = None    # actions {tache, responsable, echeance} (JSON)
+    actions_json: str | None = None    # prochaines actions {action,responsable,echeance,priorite}
     key_points_json: str | None = None  # points clés (JSON)
     topics_json: str | None = None     # thèmes (JSON)
     sentiment: str | None = None       # ton global

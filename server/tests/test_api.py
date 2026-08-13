@@ -119,7 +119,7 @@ def test_recordings_are_private_and_deletable(monkeypatch):
             },
             files={"audio": ("sample.webm", b"audio-data", "audio/webm")},
         )
-        assert created.status_code == 202
+        assert created.status_code == 201
         assert created.json()["consent_version"]
         recording_id = created.json()["id"]
         assert (
@@ -238,7 +238,7 @@ def test_participant_erasure_deletes_linked_recording(monkeypatch):
             },
             files={"audio": ("sample.webm", b"audio-data", "audio/webm")},
         )
-        assert recording.status_code == 202
+        assert recording.status_code == 201
 
         erased = client.delete(f"/api/public/consents/{consent_tokens[0]}/data")
         assert erased.status_code == 204

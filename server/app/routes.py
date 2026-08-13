@@ -209,7 +209,7 @@ def recording_detail(recording: Recording, session: Session | None = None) -> di
     return result
 
 
-@router.post("/recordings", status_code=202)
+@router.post("/recordings", status_code=201)
 async def create_recording(
     title: str = Form(..., min_length=1, max_length=120),
     consent: bool = Form(...),

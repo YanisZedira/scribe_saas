@@ -11,6 +11,7 @@ venv/
 !.env.example
 *.db
 *.sqlite3
+server/data/
 
 # Node / Vite
 node_modules/
@@ -23,3 +24,16 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+tmp/pdfs/
+outputs/
+tmp/
+test/
+preproduction.pdf
+team-delivery-kit/
+team-github-kit/
+team-github-kit-rncp/
+team-github-kit-final/
+team-ashwin-github-kit/
+team-scribe-atomic-kit/
+build_atomic_kit.py
+test_atomic_kit.ps1

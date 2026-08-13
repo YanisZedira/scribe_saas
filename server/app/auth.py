@@ -1,48 +1,54 @@
-"""Authentification : JWT + bcrypt."""
+"""Mots de passe, jetons de session et utilisateur courant."""
 
-from __future__ import annotations
-
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.config import settings
 from app.db import get_session
 from app.models import User
 
 oauth2 = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
-_ALG = "HS256"
+ALGORITHM = "HS256"
 
 
-def hash_pw(pw: str) -> str:
-    return bcrypt.hashpw(pw.encode()[:72], bcrypt.gensalt()).decode()
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode()[:72], bcrypt.gensalt()).decode()
 
 
-def verify_pw(pw: str, hashed: str) -> bool:
+def verify_password(password: str, hashed_password: str) -> bool:
+    if hashed_password.startswith("!"):
+        return False
     try:
-        return bcrypt.checkpw(pw.encode()[:72], hashed.encode())
+        return bcrypt.checkpw(password.encode()[:72], hashed_password.encode())
     except ValueError:
         return False
 
 
-def make_token(sub: str) -> str:
-    exp = datetime.now(timezone.utc) + timedelta(minutes=settings.token_minutes)
-    return jwt.encode({"sub": sub, "exp": exp}, settings.secret_key, algorithm=_ALG)
+def create_access_token(user_id: str) -> str:
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.token_minutes)
+    return jwt.encode({"sub": user_id, "exp": expires_at}, settings.secret_key, algorithm=ALGORITHM)
 
 
-def current_user(token: str = Depends(oauth2),
-                 session: Session = Depends(get_session)) -> User:
-    exc = HTTPException(status.HTTP_401_UNAUTHORIZED, "Non authentifié",
-                        {"WWW-Authenticate": "Bearer"})
+def user_id_from_token(token: str) -> str | None:
     try:
-        uid = jwt.decode(token, settings.secret_key, algorithms=[_ALG]).get("sub")
+        return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM]).get("sub")
     except JWTError:
-        raise exc from None
-    user = session.get(User, uid) if uid else None
+        return None
+
+
+def current_user(token: str = Depends(oauth2), session: Session = Depends(get_session)) -> User:
+    unauthorized = HTTPException(
+        status.HTTP_401_UNAUTHORIZED,
+        "Connexion requise",
+        {"WWW-Authenticate": "Bearer"},
+    )
+    user_id = user_id_from_token(token)
+    user = session.get(User, user_id) if user_id else None
     if not user:
-        raise exc
+        raise unauthorized
     return user

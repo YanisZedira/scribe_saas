@@ -1,200 +1,309 @@
-"""Routes API : auth, réunions (Vexa + Mistral), dashboard.
+"""API du MVP : comptes, SSO, dictaphone et résultats."""
 
-Flux automatisé : on envoie le bot, puis le frontend interroge GET /meetings/{id}.
-À chaque appel, le backend vérifie l'état Vexa ; dès que la réunion est terminée,
-il récupère la transcription et lance l'analyse Mistral — sans action manuelle.
-Aucun fallback : si une clé manque ou une API échoue, l'erreur est explicite.
-"""
-
-from __future__ import annotations
-
+import asyncio
 import json
+from pathlib import Path
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from authlib.integrations.starlette_client import OAuth, OAuthError
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlmodel import Session, select
 
-from app.auth import current_user, hash_pw, make_token, verify_pw
+from app.auth import create_access_token, current_user, hash_password, verify_password
+from app.config import settings
 from app.db import get_session
-from app.llm import LLMError, analyze
-from app.models import Meeting, MeetingStatus, User
-from app.vexa import (VexaError, get_transcript, parse_url, send_bot, stop_bot,
-                      transcript_text)
+from app.legal_routes import AgreementInput, has_current_agreements, save_agreements
+from app.models import (
+    ConsentSession,
+    ConsentSessionStatus,
+    ExternalIdentity,
+    ParticipantConsent,
+    Recording,
+    SessionRecording,
+    StructuredReport,
+    User,
+)
+from app.processing import process_recording
 
 router = APIRouter(prefix="/api")
-_END_STATES = {"completed", "failed", "stopped"}
+oauth = OAuth()
+if settings.google_sso_configured:
+    oauth.register(
+        name="google",
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret,
+        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+        client_kwargs={"scope": "openid email profile"},
+    )
+
+ALLOWED_AUDIO = {
+    "audio/webm": ".webm",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+}
+CONSENT_VERSION = "2026-07-26"
 
 
-# ─── Auth ─────────────────────────────────────────────────────────────────
-class RegisterIn(BaseModel):
+class RegisterInput(BaseModel):
     email: EmailStr
-    password: str
-    full_name: str | None = None
+    password: str = Field(min_length=10, max_length=72)
+    full_name: str = Field(min_length=2, max_length=100)
+    terms_accepted: bool
+    privacy_accepted: bool
+
+
+def token_response(user: User) -> dict:
+    return {"access_token": create_access_token(user.id), "token_type": "bearer"}
 
 
 @router.post("/auth/register", status_code=201)
-def register(p: RegisterIn, session: Session = Depends(get_session)):
-    if session.exec(select(User).where(User.email == p.email)).first():
-        raise HTTPException(409, "E-mail déjà utilisé")
-    session.add(User(email=p.email, full_name=p.full_name,
-                     hashed_password=hash_pw(p.password)))
+def register(payload: RegisterInput, session: Session = Depends(get_session)):
+    agreement = AgreementInput(
+        terms_accepted=payload.terms_accepted,
+        privacy_accepted=payload.privacy_accepted,
+    )
+    if not agreement.terms_accepted or not agreement.privacy_accepted:
+        raise HTTPException(400, "Les CGU et l’information RGPD doivent être validées")
+    email = payload.email.lower()
+    if session.exec(select(User).where(User.email == email)).first():
+        raise HTTPException(409, "Cette adresse e-mail est déjà utilisée")
+    user = User(
+        email=email,
+        full_name=payload.full_name.strip(),
+        hashed_password=hash_password(payload.password),
+    )
+    session.add(user)
     session.commit()
-    return {"ok": True}
+    session.refresh(user)
+    save_agreements(user.id, agreement, session)
+    return token_response(user)
 
 
 @router.post("/auth/login")
-def login(form: OAuth2PasswordRequestForm = Depends(),
-          session: Session = Depends(get_session)):
-    u = session.exec(select(User).where(User.email == form.username)).first()
-    if not u or not verify_pw(form.password, u.hashed_password):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Identifiants incorrects")
-    return {"access_token": make_token(u.id), "token_type": "bearer"}
+def login(form: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.email == form.username.lower())).first()
+    if not user or not verify_password(form.password, user.hashed_password):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou mot de passe incorrect")
+    return token_response(user)
+
+
+@router.get("/auth/sso/google")
+async def google_login(request: Request):
+    if not settings.google_sso_configured:
+        raise HTTPException(503, "La connexion Google n’est pas encore configurée")
+    callback = f"{settings.api_public_url.rstrip('/')}/api/auth/sso/google/callback"
+    return await oauth.google.authorize_redirect(request, callback)
+
+
+@router.get("/auth/sso/google/callback")
+async def google_callback(request: Request, session: Session = Depends(get_session)):
+    if not settings.google_sso_configured:
+        raise HTTPException(503, "La connexion Google n’est pas configurée")
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        profile = token.get("userinfo") or await oauth.google.userinfo(token=token)
+    except OAuthError as exc:
+        raise HTTPException(400, "La connexion Google a échoué") from exc
+    if not profile.get("email") or profile.get("email_verified") is False:
+        raise HTTPException(400, "Google n’a pas confirmé cette adresse e-mail")
+
+    subject = str(profile["sub"])
+    identity = session.exec(
+        select(ExternalIdentity).where(
+            ExternalIdentity.provider == "google", ExternalIdentity.subject == subject
+        )
+    ).first()
+    user = session.get(User, identity.user_id) if identity else None
+    if not user:
+        email = str(profile["email"]).lower()
+        user = session.exec(select(User).where(User.email == email)).first()
+        if not user:
+            user = User(
+                email=email,
+                full_name=profile.get("name") or email.split("@")[0],
+                hashed_password="!google-sso",
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+        session.add(ExternalIdentity(user_id=user.id, provider="google", subject=subject))
+        session.commit()
+
+    access_token = quote(create_access_token(user.id), safe="")
+    return RedirectResponse(f"{settings.frontend_url.rstrip('/')}/#access_token={access_token}")
 
 
 @router.get("/auth/me")
-def me(user: User = Depends(current_user)):
-    return {"id": user.id, "email": user.email, "full_name": user.full_name}
-
-
-# ─── Réunions ───────────────────────────────────────────────────────────────
-class MeetingIn(BaseModel):
-    title: str
-    meeting_url: str
-
-
-def _owned(mid: str, user: User, session: Session) -> Meeting:
-    m = session.get(Meeting, mid)
-    if not m or m.owner_id != user.id:
-        raise HTTPException(404, "Réunion introuvable")
-    return m
-
-
-def _detail(m: Meeting) -> dict:
-    j = lambda s: json.loads(s) if s else []  # noqa: E731
+def me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     return {
-        "id": m.id, "title": m.title, "platform": m.platform,
-        "meeting_url": m.meeting_url, "status": m.status,
-        "created_at": m.created_at, "duration_sec": m.duration_sec, "error": m.error,
-        "transcript": m.transcript, "summary": m.summary, "cr_md": m.cr_md,
-        "sentiment": m.sentiment, "decisions": j(m.decisions_json),
-        "actions": j(m.actions_json), "key_points": j(m.key_points_json),
-        "topics": j(m.topics_json),
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "agreements_current": has_current_agreements(user.id, session),
     }
 
 
-def _run_analysis(m: Meeting, transcript: str, session: Session) -> None:
-    """Analyse Mistral + persistance. Lève en cas d'erreur (pas de fallback)."""
-    m.transcript = transcript
-    m.status = MeetingStatus.ANALYZING
-    session.add(m); session.commit()
-    a = analyze(transcript)
-    m.title = a.get("titre") or m.title
-    m.summary = a.get("resume")
-    m.cr_md = a.get("compte_rendu_md")
-    m.sentiment = a.get("ton")
-    m.topics_json = json.dumps(a.get("themes", []), ensure_ascii=False)
-    m.key_points_json = json.dumps(a.get("points_cles", []), ensure_ascii=False)
-    m.decisions_json = json.dumps(a.get("decisions", []), ensure_ascii=False)
-    m.actions_json = json.dumps(a.get("prochaines_actions", []), ensure_ascii=False)
-    m.status = MeetingStatus.DONE
-    session.add(m); session.commit()
+def owned_recording(recording_id: str, user: User, session: Session) -> Recording:
+    recording = session.get(Recording, recording_id)
+    if not recording or recording.owner_id != user.id:
+        raise HTTPException(404, "Enregistrement introuvable")
+    return recording
 
 
-@router.post("/meetings", status_code=201)
-def create_meeting(p: MeetingIn, user: User = Depends(current_user),
-                   session: Session = Depends(get_session)):
-    """Envoie le bot Vexa dans la réunion. Le suivi se fait par polling (auto)."""
-    try:
-        platform, native_id = send_bot(p.meeting_url)
-    except VexaError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    m = Meeting(owner_id=user.id, title=p.title, meeting_url=p.meeting_url,
-                platform=platform, native_id=native_id,
-                status=MeetingStatus.RECORDING)
-    session.add(m); session.commit(); session.refresh(m)
-    return _detail(m)
+def parse_json(value: str | None) -> list:
+    return json.loads(value) if value else []
 
 
-@router.get("/meetings/{mid}")
-def get_meeting(mid: str, user: User = Depends(current_user),
-                session: Session = Depends(get_session)):
-    """Renvoie l'état courant. Auto-analyse dès que la réunion est terminée."""
-    m = _owned(mid, user, session)
-    if m.status == MeetingStatus.RECORDING and m.native_id:
-        try:
-            data = get_transcript(m.platform, m.native_id)
-            live_text = transcript_text(data)
-            m.transcript = live_text or m.transcript          # aperçu live
-            if data.get("status") in _END_STATES:
-                stop_bot(m.platform, m.native_id)
-                if live_text.strip():
-                    _run_analysis(m, live_text, session)
-                else:
-                    m.status = MeetingStatus.FAILED
-                    m.error = "Réunion terminée sans parole transcrite."
-            session.add(m); session.commit()
-        except (VexaError, LLMError) as exc:
-            m.status = MeetingStatus.FAILED; m.error = str(exc)
-            session.add(m); session.commit()
-    return _detail(_owned(mid, user, session))
-
-
-@router.post("/meetings/{mid}/finalize")
-def finalize(mid: str, user: User = Depends(current_user),
-             session: Session = Depends(get_session)):
-    """Force la fin : récupère la transcription Vexa et lance l'analyse."""
-    m = _owned(mid, user, session)
-    try:
-        data = get_transcript(m.platform, m.native_id)
-        stop_bot(m.platform, m.native_id)
-        text = transcript_text(data)
-        if not text.strip():
-            raise HTTPException(400, "Aucune parole transcrite pour l'instant.")
-        _run_analysis(m, text, session)
-    except VexaError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except LLMError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    return _detail(_owned(mid, user, session))
-
-
-@router.get("/meetings")
-def list_meetings(user: User = Depends(current_user),
-                  session: Session = Depends(get_session)):
-    ms = session.exec(select(Meeting).where(Meeting.owner_id == user.id)
-                      .order_by(Meeting.created_at.desc())).all()
-    return [{"id": m.id, "title": m.title, "platform": m.platform,
-             "status": m.status, "created_at": m.created_at,
-             "sentiment": m.sentiment} for m in ms]
-
-
-@router.delete("/meetings/{mid}", status_code=204)
-def delete_meeting(mid: str, user: User = Depends(current_user),
-                   session: Session = Depends(get_session)):
-    session.delete(_owned(mid, user, session)); session.commit()
-
-
-# ─── Dashboard ──────────────────────────────────────────────────────────────
-@router.get("/dashboard")
-def dashboard(user: User = Depends(current_user),
-              session: Session = Depends(get_session)):
-    ms = session.exec(select(Meeting).where(Meeting.owner_id == user.id)).all()
-    total_decisions = total_actions = 0
-    topics: dict[str, int] = {}
-    for m in ms:
-        total_decisions += len(json.loads(m.decisions_json)) if m.decisions_json else 0
-        total_actions += len(json.loads(m.actions_json)) if m.actions_json else 0
-        for t in (json.loads(m.topics_json) if m.topics_json else []):
-            topics[t] = topics.get(t, 0) + 1
-    top = sorted(topics.items(), key=lambda x: -x[1])[:6]
-    return {
-        "total_meetings": len(ms),
-        "analyzed": len([m for m in ms if m.status == MeetingStatus.DONE]),
-        "total_decisions": total_decisions,
-        "total_actions": total_actions,
-        "top_topics": [{"label": k, "count": v} for k, v in top],
-        "recent": [{"id": m.id, "title": m.title, "status": m.status,
-                    "created_at": m.created_at}
-                   for m in sorted(ms, key=lambda x: x.created_at, reverse=True)[:5]],
+def recording_detail(recording: Recording, session: Session | None = None) -> dict:
+    report = (
+        session.exec(
+            select(StructuredReport).where(StructuredReport.recording_id == recording.id)
+        ).first()
+        if session
+        else None
+    )
+    result = {
+        "id": recording.id,
+        "title": recording.title,
+        "status": recording.status,
+        "created_at": recording.created_at,
+        "completed_at": recording.completed_at,
+        "error": recording.error,
+        "transcript": recording.transcript,
+        "segments": parse_json(recording.segments_json),
+        "summary": recording.summary,
+        "topics": parse_json(recording.topics_json),
+        "decisions": parse_json(recording.decisions_json),
+        "actions": parse_json(recording.actions_json),
+        "consent_version": recording.consent_version,
     }
+    if report:
+        result["report"] = {
+            "model": report.model,
+            "language": report.language,
+            "detailed_minutes": report.detailed_minutes,
+            "speakers": parse_json(report.speakers_json),
+            "key_points": parse_json(report.key_points_json),
+            "decisions": parse_json(report.decisions_json),
+            "actions": parse_json(report.actions_json),
+            "open_questions": parse_json(report.open_questions_json),
+            "risks": parse_json(report.risks_json),
+            "coverage": parse_json(report.coverage_json),
+            "podcast_script": parse_json(report.podcast_json),
+        }
+    return result
+
+
+@router.post("/recordings", status_code=202)
+async def create_recording(
+    title: str = Form(..., min_length=1, max_length=120),
+    consent: bool = Form(...),
+    consent_session_id: str = Form(...),
+    audio: UploadFile = File(...),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    if not consent:
+        raise HTTPException(400, "Votre consentement est obligatoire")
+    meeting = session.get(ConsentSession, consent_session_id)
+    if not meeting or meeting.owner_id != user.id:
+        raise HTTPException(404, "Réunion de consentement introuvable")
+    if meeting.status != ConsentSessionStatus.RECORDING:
+        raise HTTPException(409, "La réunion n’est pas autorisée à enregistrer")
+    participants = list(
+        session.exec(select(ParticipantConsent).where(ParticipantConsent.session_id == meeting.id))
+    )
+    if not participants or not all(
+        item.consented_at and not item.withdrawn_at for item in participants
+    ):
+        raise HTTPException(409, "Un participant a refusé ou retiré son accord")
+    content_type = (audio.content_type or "").split(";")[0].lower()
+    extension = ALLOWED_AUDIO.get(content_type)
+    if not extension:
+        raise HTTPException(415, "Format audio non accepté")
+    data = await audio.read(settings.max_audio_mb * 1024 * 1024 + 1)
+    if not data:
+        raise HTTPException(400, "Le fichier audio est vide")
+    if len(data) > settings.max_audio_mb * 1024 * 1024:
+        raise HTTPException(413, f"Le fichier dépasse {settings.max_audio_mb} Mo")
+
+    settings.audio_directory.mkdir(parents=True, exist_ok=True)
+    recording = Recording(
+        owner_id=user.id,
+        title=title.strip(),
+        original_filename=f"recording{extension}",
+        content_type=content_type,
+        audio_path="",
+        consent_version=CONSENT_VERSION,
+    )
+    path = settings.audio_directory / f"{recording.id}{extension}"
+    path.write_bytes(data)
+    recording.audio_path = str(path)
+    session.add(recording)
+    session.add(SessionRecording(session_id=meeting.id, recording_id=recording.id))
+    session.commit()
+    session.refresh(recording)
+    # Garder la requête active empêche Scaleway d'interrompre le traitement.
+    await asyncio.to_thread(process_recording, recording.id)
+    session.expire_all()
+    return recording_detail(owned_recording(recording.id, user, session), session)
+
+
+@router.get("/recordings")
+def list_recordings(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    recordings = session.exec(
+        select(Recording).where(Recording.owner_id == user.id).order_by(Recording.created_at.desc())
+    ).all()
+    return [
+        {"id": item.id, "title": item.title, "status": item.status, "created_at": item.created_at}
+        for item in recordings
+    ]
+
+
+@router.get("/recordings/{recording_id}")
+def get_recording(
+    recording_id: str,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    return recording_detail(owned_recording(recording_id, user, session), session)
+
+
+@router.delete("/recordings/{recording_id}", status_code=204)
+def delete_recording(
+    recording_id: str,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    recording = owned_recording(recording_id, user, session)
+    link = session.exec(
+        select(SessionRecording).where(SessionRecording.recording_id == recording.id)
+    ).first()
+    if link:
+        session.delete(link)
+    report = session.exec(
+        select(StructuredReport).where(StructuredReport.recording_id == recording.id)
+    ).first()
+    if report:
+        session.delete(report)
+    session.flush()
+    path = Path(recording.audio_path).resolve()
+    if path.is_relative_to(settings.audio_directory) and path.exists():
+        path.unlink()
+    session.delete(recording)
+    session.commit()

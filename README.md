@@ -1,76 +1,67 @@
-# 🎙️ Scribe — Bot de réunion → Compte-rendu IA (réel, sans fallback)
+# Scribe
 
-Un bot **rejoint ta réunion Google Meet / Teams / Zoom**, **écoute et transcrit**
-(Vexa), puis **Mistral** génère automatiquement le **résumé**, les **décisions**,
-les **prochaines actions** et un **compte-rendu écrit**. Le CR apparaît **tout seul**
-à la fin de la réunion (polling automatique).
+Scribe rejoint une réunion Google Meet ou Microsoft Teams, produit une transcription
+attribuée aux intervenants et transforme l’échange en compte rendu, décisions, actions,
+questions, risques et brief audio à deux voix. Le dictaphone présentiel reste disponible.
 
-- **Backend** : FastAPI (`server/`) — Vexa + Mistral, **aucun mode démo**.
-- **Frontend** : React + Vite (`web/`) — dashboard, suivi live, compte-rendu.
-- **Banc de test** : `test/` — valide Vexa, Voxtral (transcription) et Mistral.
+## Fonctionnalités
 
-> ⚠️ **Clés API obligatoires** (pas de fausses données) : sans clé, l'app renvoie
-> une erreur explicite au lieu d'inventer un résultat.
+- compte local et Google SSO avec OAuth 2.0 et OpenID Connect ;
+- consentement individuel envoyé par e-mail avant toute capture ;
+- bot visible dans Google Meet et Microsoft Teams ;
+- transcription en direct avec attribution des intervenants ;
+- WebSocket temps réel avec repli automatique sur la synchronisation REST ;
+- saisie des participants avant l’envoi de leurs demandes de consentement ;
+- commande `STOP SCRIBE` dans le chat avec arrêt et effacement immédiats ;
+- Mistral Medium 3.5 avec sortie JSON validée et preuves par segment ;
+- mentions directes avec auteur, contexte et passages justificatifs ;
+- distinction entre décisions confirmées, proposées et reportées ;
+- plan d’action avec responsable, échéance et priorité uniquement quand ils sont explicites ;
+- dashboard, bibliothèque, vue décisions, vue actions et transcription ;
+- brief audio à deux voix généré localement par le navigateur ;
+- arrêt et purge si un participant retire son consentement ;
+- publication du récapitulatif et du lien Scribe dans le chat avant le départ du bot ;
+- export, suppression du compte et expiration des résultats.
 
----
+## Stack
 
-## 1. Configurer les clés — `server/.env`
-```bash
-cd server
-copy .env.example .env     # macOS/Linux : cp .env.example .env
-```
-Renseigne dans `server/.env` :
-```
-VEXA_API_KEY=...        # https://vexa.ai/account  (le bot + la transcription)
-LLM_API_KEY=...         # https://console.mistral.ai/api-keys  (l'analyse)
-```
+- Frontend : React 18, JavaScript, CSS et Vite.
+- Backend : Python 3.12, FastAPI, SQLModel et Pydantic.
+- Base : SQLite en local, PostgreSQL managé en ligne.
+- Bot en ligne : Vexa pour Meet et Teams, sans enregistrement audio activé.
+- IA : Voxtral pour le dictaphone et `mistral-medium-3-5` pour l’analyse structurée.
+- Hébergement : Netlify pour le frontend, conteneur serverless pour l’API.
 
-## 2. Lancer le backend (terminal 1)
-```bash
-cd server
-python -m venv .venv
-.venv\Scripts\activate          # macOS/Linux : source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-Vérifie http://localhost:8000/api/health → `vexa_configured` et `llm_configured` à `true`.
+Voir [l’architecture Sprint 2](docs/S2_ARCHITECTURE.md) et le
+[guide de mise en ligne](docs/DEPLOYMENT.md).
 
-## 3. Lancer le frontend (terminal 2)
-```bash
-cd web
-npm install
-npm run dev
-```
-Ouvre **http://localhost:5173**.
+## Lancement local
 
----
+Copier `server/.env.example` vers `server/.env`, renseigner les services utilisés, puis :
 
-## 🧪 Tester avec une vraie réunion Google Meet
-1. Démarre une réunion sur https://meet.google.com (note le lien `meet.google.com/abc-defg-hij`).
-2. Dans Scribe : **Nouvelle réunion** → colle le lien → **Envoyer le bot**.
-3. Dans Meet, **admets le participant « Scribe »** (salle d'attente).
-4. Parle quelques phrases (décisions, actions à faire…).
-5. Quitte/termine la réunion (ou clique **Terminer maintenant**).
-6. Le **compte-rendu écrit** s'affiche automatiquement : résumé, décisions,
-   prochaines actions, points clés, thèmes — et la transcription complète.
-
-> Astuce : Google Meet est le plus simple pour faire admettre le bot. Pour Teams,
-> l'organisateur doit aussi admettre « Scribe ».
-
----
-
-## Architecture
-```
-Lien Meet ─► POST /api/meetings ─► Vexa envoie un bot (écoute + transcrit)
-Le front interroge GET /api/meetings/{id} toutes les 4 s :
-   └─ dès que Vexa indique "terminé" ─► Mistral analyse ─► compte-rendu écrit
-                                                              │
-                                                        Dashboard
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-## Banc de test (optionnel, pour vérifier chaque brique)
-```bash
-cd test && pip install -r requirements.txt && copy .env.example .env
-python run.py check                 # Vexa + Voxtral + Mistral répondent ?
-python run.py pipeline mon_audio.mp3  # Voxtral (transcription) -> Mistral (analyse)
+- Interface : `http://localhost:5174`
+- API : `http://localhost:8000`
+- Documentation API : `http://localhost:8000/docs`
+
+Pour activer le bot en ligne, `VEXA_API_KEY` est obligatoire. Sans SMTP, Scribe ne
+crée pas de session de consentement et n’envoie donc aucun bot.
+
+Pour Teams, Vexa exige l’identifiant numérique et le code secret présents dans
+l’invitation lorsque le lien collé n’est pas déjà au format `teams.live.com/meet/...`.
+
+## Contrôles
+
+```powershell
+server\.venv\Scripts\ruff.exe check server\app server\tests
+server\.venv\Scripts\python.exe -m pytest -q
+
+Set-Location web
+npm run build
 ```
+
+Le code fournit des mesures techniques de protection des données. Les informations
+légales, contrats, durées et sous-traitants doivent être validés avant une production réelle.

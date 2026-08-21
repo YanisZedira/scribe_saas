@@ -83,3 +83,30 @@ def test_keeps_a_real_repetition_at_a_later_time():
     }
 
     assert len(vexa.normalize_segments(data)) == 2
+
+
+def test_replaces_same_provider_segment_even_if_timestamp_moves():
+    data = {
+        "segments": [
+            {
+                "segment_id": "fixed-id",
+                "start_time": 2,
+                "end_time": 3,
+                "speaker": "A",
+                "text": "Nous allons",
+                "completed": False,
+            },
+            {
+                "segment_id": "fixed-id",
+                "start_time": 5,
+                "end_time": 8,
+                "speaker": "A",
+                "text": "Nous allons livrer vendredi.",
+                "completed": True,
+            },
+        ]
+    }
+
+    segments = vexa.normalize_segments(data)
+    assert len(segments) == 1
+    assert segments[0]["text"] == "Nous allons livrer vendredi."

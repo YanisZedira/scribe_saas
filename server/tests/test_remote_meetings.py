@@ -1,6 +1,20 @@
+from app.db import engine
 from app.llm import Coverage, Decision, MeetingSummary, PodcastTurn, Speaker
 from app.main import app
+from app.models import (
+    CalendarConnection,
+    CalendarEvent,
+    ConsentSession,
+    ParticipantConsent,
+    RemoteMeeting,
+)
 from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, select
+
+
+def setup_function():
+    SQLModel.metadata.drop_all(engine)
+    SQLModel.metadata.create_all(engine)
 
 
 def register(client: TestClient, email: str) -> str:
@@ -54,7 +68,7 @@ def test_remote_meeting_live_and_final_report(monkeypatch):
     monkeypatch.setattr("app.config.settings.vexa_api_key", "vexa-test")
     monkeypatch.setattr(
         "app.consent_routes.send_consent_email",
-        lambda _name, _email, _title, token: tokens.append(token),
+        lambda _name, _email, _title, token, *_args: tokens.append(token),
     )
     monkeypatch.setattr(
         "app.remote_routes.vexa.send_bot",
@@ -118,3 +132,83 @@ def test_remote_meeting_live_and_final_report(monkeypatch):
         assert detail["status"] == "completed"
         assert detail["report"]["decisions"][0]["decision"] == "Lancer"
         assert detail["provider_data_deleted"] is True
+
+
+def test_delete_remote_meeting_erases_local_archive(monkeypatch):
+    invitations = []
+    monkeypatch.setattr("app.config.settings.smtp_host", "smtp.example.com")
+    monkeypatch.setattr("app.config.settings.smtp_from_email", "scribe@example.com")
+    monkeypatch.setattr("app.config.settings.vexa_api_key", "vexa-test")
+    monkeypatch.setattr(
+        "app.consent_routes.send_consent_email",
+        lambda _name, _email, _title, token, *_args: invitations.append(token),
+    )
+    monkeypatch.setattr("app.remote_routes.vexa.send_bot", lambda *_: None)
+    monkeypatch.setattr("app.remote_routes.vexa.stop_bot", lambda *_: None)
+    monkeypatch.setattr("app.remote_routes.vexa.delete_meeting", lambda *_: None)
+
+    with TestClient(app) as client:
+        token = register(client, "delete-remote@example.com")
+        headers = auth(token)
+        consent = client.post(
+            "/api/consent-sessions",
+            headers=headers,
+            json={
+                "title": "Réunion à effacer",
+                "participants": [{"name": "Manny", "email": "manny@example.com"}],
+            },
+        ).json()
+        client.post(f"/api/public/consents/{invitations[0]}/accept")
+        client.post(
+            f"/api/consent-sessions/{consent['id']}/start",
+            headers=headers,
+            json={"notice_confirmed": True},
+        )
+        remote = client.post(
+            "/api/remote-meetings",
+            headers=headers,
+            json={
+                "consent_session_id": consent["id"],
+                "meeting_url": "https://meet.google.com/del-etea-tst",
+                "language": "fr",
+            },
+        ).json()
+
+        with Session(engine) as db:
+            meeting = db.get(RemoteMeeting, remote["id"])
+            connection = CalendarConnection(
+                user_id=meeting.owner_id,
+                provider="google",
+                account_email="delete-remote@example.com",
+                access_token="encrypted",
+            )
+            db.add(connection)
+            db.commit()
+            db.refresh(connection)
+            db.add(
+                CalendarEvent(
+                    owner_id=meeting.owner_id,
+                    connection_id=connection.id,
+                    provider_event_id="deleted-event",
+                    title="Réunion à effacer",
+                    starts_at=meeting.created_at,
+                    meeting_url=meeting.meeting_url,
+                    consent_session_id=consent["id"],
+                    remote_meeting_id=meeting.id,
+                )
+            )
+            db.commit()
+
+        response = client.delete(f"/api/remote-meetings/{remote['id']}", headers=headers)
+        assert response.status_code == 204
+        with Session(engine) as db:
+            assert db.get(RemoteMeeting, remote["id"]) is None
+            assert db.get(ConsentSession, consent["id"]) is None
+            assert not db.exec(
+                select(ParticipantConsent).where(
+                    ParticipantConsent.session_id == consent["id"]
+                )
+            ).first()
+            assert not db.exec(
+                select(CalendarEvent).where(CalendarEvent.remote_meeting_id == remote["id"])
+            ).first()

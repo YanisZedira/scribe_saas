@@ -17,6 +17,8 @@ server/data/
 node_modules/
 dist/
 .vite/
+teams-app/build/
+teams-app/*.zip
 
 # OS / IDE
 .DS_Store

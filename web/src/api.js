@@ -56,6 +56,15 @@ export const api = {
     setAccessToken(data.access_token);
   },
   googleSsoUrl: () => `${API_BASE}/api/auth/sso/google`,
+  microsoftSsoUrl: () => `${API_BASE}/api/auth/sso/microsoft`,
+  calendarStatus: () => request("/api/calendars"),
+  connectCalendar: (provider) => request(`/api/calendars/${provider}/connect`),
+  syncCalendars: () => request("/api/calendars/sync", { method: "POST" }),
+  calendarEvents: () => request("/api/calendar-events"),
+  configureCalendarEvent: (id, enabled, options = {}) => request(`/api/calendar-events/${id}/automation`, {
+    method: "PUT", body: JSON.stringify({ enabled, ...options }),
+  }),
+  disconnectCalendar: (id) => request(`/api/calendars/${id}`, { method: "DELETE" }),
   listRecordings: () => request("/api/recordings"),
   getRecording: (id) => request(`/api/recordings/${id}`),
   legalNotices: () => request("/api/legal/notices"),

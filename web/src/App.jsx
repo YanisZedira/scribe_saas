@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, isAuthenticated, setAccessToken } from "./api";
 import { ActionsView, Dashboard } from "./Dashboard";
+import { MeetingsHub } from "./CalendarAutomation";
 import { PodcastPlayer } from "./PodcastPlayer";
-import { LegalGate, PublicConsent } from "./PrivacyFlows";
+import { LegalGate, PublicConsent, PublicLegal } from "./PrivacyFlows";
 import { NewMeeting } from "./RemoteMeetingWorkflow";
 import { RemoteMeetingView } from "./RemoteMeetingView";
 
@@ -18,6 +19,7 @@ const Icon = ({ name, size = 20 }) => {
     rotate: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></>,
     bot: <><rect x="4" y="6" width="16" height="13" rx="4"/><path d="M12 2v4M8 11h.01M16 11h.01M8 15h8"/></>,
     tasks: <><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01"/></>,
   };
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 };
@@ -27,23 +29,46 @@ function consumeSsoToken() {
   const token = params.get("access_token");
   if (token) {
     setAccessToken(token);
-    history.replaceState(null, "", window.location.pathname);
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
   }
 }
 
 export default function App() {
   const match = window.location.pathname.match(/^\/consent\/([^/]+)$/);
   if (match) return <PublicConsent token={match[1]} />;
+  if (window.location.pathname === "/privacy-policy") return <PublicLegal type="privacy" />;
+  if (window.location.pathname === "/terms") return <PublicLegal type="terms" />;
   return <AuthenticatedApp />;
 }
 
 function AuthenticatedApp() {
   consumeSsoToken();
   const deepLink = window.location.pathname.match(/^\/meeting\/([^/]+)$/);
+  const params = new URLSearchParams(window.location.search);
+  const teamsMode = params.get("host") === "teams";
+  const requestedView = params.get("view");
+  const initialView = ["dashboard", "meetings", "actions", "privacy"].includes(requestedView)
+    ? requestedView
+    : "dashboard";
   const [authenticated, setAuthenticated] = useState(isAuthenticated());
   const [user, setUser] = useState(null);
-  const [view, setView] = useState(deepLink ? "remote" : "dashboard");
+  const [view, setView] = useState(deepLink ? "remote" : initialView);
   const [selectedId, setSelectedId] = useState(deepLink?.[1] || null);
+
+  useEffect(() => {
+    if (!teamsMode) return undefined;
+    let active = true;
+    import("@microsoft/teams-js").then(async ({ app }) => {
+      await app.initialize();
+      const context = await app.getContext();
+      if (!active) return;
+      document.documentElement.dataset.teamsTheme = context.app.theme || "default";
+      app.registerOnThemeChangeHandler((theme) => {
+        document.documentElement.dataset.teamsTheme = theme;
+      });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [teamsMode]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -55,25 +80,28 @@ function AuthenticatedApp() {
   if (!user.agreements_current) {
     return <LegalGate onAccepted={() => api.me().then(setUser)} />;
   }
+  const goTo = (nextView) => {
+    setView(nextView);
+    history.replaceState(null, "", teamsMode ? `/?host=teams&view=${nextView}` : "/");
+  };
   const openRecording = (id) => { setSelectedId(id); setView("result"); };
   const openRemote = (id) => {
     setSelectedId(id);
     setView("remote");
-    history.replaceState(null, "", `/meeting/${id}`);
+    history.replaceState(null, "", `/meeting/${id}${teamsMode ? "?host=teams" : ""}`);
   };
   const openItem = (item) => item.source === "bot" ? openRemote(item.id) : openRecording(item.id);
   const logout = () => { setAccessToken(null); setUser(null); setAuthenticated(false); };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${teamsMode ? "teams-shell" : ""}`}>
       <aside className="sidebar">
         <Brand />
         <nav className="nav-list" aria-label="Navigation principale">
-          <NavButton active={view === "dashboard"} icon="home" label="Vue d’ensemble" onClick={() => setView("dashboard")} />
-          <NavButton active={view === "new"} icon="bot" label="Nouvelle réunion" onClick={() => setView("new")} />
-          <NavButton active={["library", "result", "remote"].includes(view)} icon="file" label="Réunions" onClick={() => setView("library")} />
-          <NavButton active={view === "actions"} icon="tasks" label="Actions" onClick={() => setView("actions")} />
-          <NavButton active={view === "privacy"} icon="shield" label="Confidentialité" onClick={() => setView("privacy")} />
+          <NavButton active={view === "dashboard"} icon="home" label="Accueil" onClick={() => goTo("dashboard")} />
+          <NavButton active={["meetings", "new", "result", "remote"].includes(view)} icon="calendar" label="Réunions" onClick={() => goTo("meetings")} />
+          <NavButton active={view === "actions"} icon="tasks" label="Actions" onClick={() => goTo("actions")} />
+          <NavButton active={view === "privacy"} icon="shield" label="Confidentialité" onClick={() => goTo("privacy")} />
         </nav>
         <div className="profile-card">
           <div className="avatar">{(user?.full_name || user?.email || "S").slice(0, 1).toUpperCase()}</div>
@@ -83,11 +111,11 @@ function AuthenticatedApp() {
       </aside>
 
       <main className="main-content">
-        {view === "dashboard" && <Dashboard user={user} onNewBot={() => setView("new")} onOpen={openItem} />}
+        {view === "dashboard" && <Dashboard user={user} onNewBot={() => goTo("new")} onOpen={openItem} />}
         {view === "new" && <NewMeeting user={user} onRemoteCreated={openRemote} onRecordingCreated={openRecording} />}
-        {view === "library" && <Library onOpenRecording={openRecording} onOpenRemote={openRemote} />}
-        {view === "result" && <Result id={selectedId} onBack={() => setView("library")} />}
-        {view === "remote" && <RemoteMeetingView id={selectedId} onBack={() => { history.replaceState(null, "", "/"); setView("library"); }} />}
+        {view === "meetings" && <MeetingsHub onNew={() => goTo("new")} onOpenRecording={openRecording} onOpenRemote={openRemote} />}
+        {view === "result" && <Result id={selectedId} onBack={() => goTo("meetings")} />}
+        {view === "remote" && <RemoteMeetingView id={selectedId} onBack={() => goTo("meetings")} />}
         {view === "actions" && <ActionsView />}
         {view === "privacy" && <Privacy />}
       </main>
@@ -147,14 +175,15 @@ function AuthScreen({ onAuthenticated }) {
           <h2>{mode === "login" ? "Ravi de vous revoir" : "Créer votre espace"}</h2>
           <p className="muted">Une minute suffit pour commencer.</p>
           <a className="google-button" href={api.googleSsoUrl()}><GoogleLogo /> Continuer avec Google</a>
+          <a className="microsoft-button" href={api.microsoftSsoUrl()}><MicrosoftLogo /> Continuer avec Microsoft</a>
           <div className="separator"><span>ou avec votre e-mail</span></div>
           <form onSubmit={submit} className="auth-form">
             {mode === "register" && <Field label="Nom complet"><input value={fullName} onChange={e => setFullName(e.target.value)} minLength="2" required autoComplete="name" /></Field>}
             <Field label="Adresse e-mail"><input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" /></Field>
             <Field label="Mot de passe"><input type="password" value={password} onChange={e => setPassword(e.target.value)} minLength="10" required autoComplete={mode === "login" ? "current-password" : "new-password"} /><small>10 caractères minimum</small></Field>
             {mode === "register" && <>
-              <label className="legal-check"><input type="checkbox" checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} required /><span>J’ai lu l’information RGPD : compte, consentements, traitement par Vexa ou Mistral, conservation limitée et droits d’effacement.</span></label>
-              <label className="legal-check"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} required /><span>J’accepte séparément les conditions générales d’utilisation de Scribe.</span></label>
+              <label className="legal-check"><input type="checkbox" checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} required /><span>J’ai lu la <a href="/privacy-policy" target="_blank">politique de confidentialité</a> : traitements, conservation et droits d’effacement.</span></label>
+              <label className="legal-check"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} required /><span>J’accepte séparément les <a href="/terms" target="_blank">conditions d’utilisation</a> de Scribe.</span></label>
             </>}
             {error && <div className="alert error">{error}</div>}
             <button className="primary-button" disabled={busy}>{busy ? "Veuillez patienter…" : mode === "login" ? "Se connecter" : "Créer mon compte"}</button>
@@ -172,14 +201,11 @@ function GoogleLogo() {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84A11 11 0 0 0 12 23Z"/><path fill="#FBBC05" d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.43.34-2.09V7.07H2.16A11 11 0 0 0 1 12c0 1.77.42 3.45 1.16 4.93l3.68-2.84Z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.2 1.64l3.15-3.15A10.6 10.6 0 0 0 12 1 11 11 0 0 0 2.16 7.07l3.68 2.84C6.71 7.31 9.14 5.38 12 5.38Z"/></svg>;
 }
 
-function Field({ label, children }) { return <label className="field"><span>{label}</span>{children}</label>; }
-
-function Library({ onOpenRecording, onOpenRemote }) {
-  const [items, setItems] = useState(null);
-  const [error, setError] = useState("");
-  useEffect(() => { Promise.all([api.listRemoteMeetings(), api.listRecordings()]).then(([remote, recordings]) => setItems([...remote.map((item) => ({ ...item, source: "bot" })), ...recordings.map((item) => ({ ...item, source: "dictaphone" }))].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))).catch(err => setError(err.message)); }, []);
-  return <section className="page"><header className="page-header"><div><span className="eyebrow">Bibliothèque</span><h1>Toutes les réunions</h1><p>Retrouvez le direct, les transcriptions et les comptes rendus.</p></div></header>{error && <div className="alert error">{error}</div>}{items === null ? <Loading /> : items.length === 0 ? <div className="empty-card"><Icon name="file" size={30}/><h3>Aucune réunion</h3><p>Votre premier compte rendu apparaîtra ici.</p></div> : <div className="recording-list">{items.map(item => <button key={`${item.source}-${item.id}`} className="recording-row" onClick={() => item.source === "bot" ? onOpenRemote(item.id) : onOpenRecording(item.id)}><span className={`file-icon ${item.platform || "in_person"}`}>{item.platform === "google_meet" ? "M" : item.platform === "teams" ? "T" : <Icon name="mic" />}</span><span className="recording-copy"><strong>{item.title}</strong><small>{item.source === "bot" ? "Assistant en ligne" : "Dictaphone"} · {new Date(item.created_at).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}</small></span><Status status={item.status}/><span className="arrow">→</span></button>)}</div>}</section>;
+function MicrosoftLogo() {
+  return <span className="microsoft-logo" aria-hidden="true"><i/><i/><i/><i/></span>;
 }
+
+function Field({ label, children }) { return <label className="field"><span>{label}</span>{children}</label>; }
 
 function Result({ id, onBack }) {
   const [item, setItem] = useState(null); const [error, setError] = useState("");

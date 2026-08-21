@@ -146,6 +146,7 @@ button,a { -webkit-tap-highlight-color:transparent; }
 .calendar-import { margin:2px 0 14px; padding:15px; border:1px solid #d4e2dc; border-radius:15px; background:#f2f8f5; display:grid; grid-template-columns:1fr auto; gap:12px; align-items:end; }
 .calendar-import .secondary-button { min-height:44px; white-space:nowrap; }
 .calendar-drop { min-height:76px; display:flex; flex-direction:column; justify-content:center; gap:3px; padding:14px 16px; border:1px dashed #9db5aa; border-radius:14px; color:#173e35; background:#f3f8f5; cursor:pointer; }.calendar-drop input { position:absolute; width:1px; height:1px; opacity:0; }.calendar-drop strong { font-size:13px; }.calendar-drop span { color:var(--muted); font-size:11px; }
+.calendar-metadata { margin:0 0 10px; padding:18px; border:1px solid #d4e2dc; border-radius:15px; background:#f2f8f5; }.calendar-metadata>strong { display:block; margin:7px 0 3px; font:800 18px "Manrope"; }.calendar-metadata p,.calendar-metadata small { color:var(--muted); }.calendar-metadata p { margin:0 0 13px; }.calendar-metadata>div { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }.calendar-metadata>div span { padding:6px 9px; border-radius:999px; background:#fff; border:1px solid var(--line); font-size:12px; }.manual-toggle { margin:0 0 14px; }
 .live-rail .chat-control { background:#f5efe5; border-color:#e8dcc7; }
 .chat-control>strong { font-size:15px!important; letter-spacing:.4px!important; }
 .speech-row strong em { padding:3px 6px; border-radius:6px; background:#f5ead7; color:#8a642f; font:600 9px "Manrope"; font-style:normal; }
@@ -180,6 +181,8 @@ button,a { -webkit-tap-highlight-color:transparent; }
 .replay-screen audio+.replay-play { bottom:58px; }
 .replay-controls { display:grid; grid-template-columns:48px 1fr 48px; gap:10px; align-items:center; padding:14px 18px; border-bottom:1px solid var(--line); color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
 .replay-controls input { width:100%; accent-color:var(--green); }
+.native-replay { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:14px 18px; border-bottom:1px solid var(--line); background:#f3f7f5; }.native-replay div { display:flex; flex-direction:column; gap:3px; }.native-replay strong { font-size:12px; }.native-replay span { color:var(--muted); font-size:10px; }.native-replay a { flex:none; padding:9px 13px; border-radius:9px; color:#fff; background:var(--green); font-size:11px; font-weight:800; text-decoration:none; }
+.quality-card { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; overflow:hidden; border:1px solid var(--line); border-radius:18px; background:var(--line); }.quality-card div { padding:18px; display:flex; flex-direction:column; gap:3px; background:#fff; }.quality-card strong { color:var(--green-dark); font:800 23px "Manrope"; }.quality-card span { color:var(--muted); font-size:10px; }
 .replay-panel-tabs { display:flex; gap:4px; padding:12px 14px 8px; }
 .replay-panel-tabs button { min-height:34px; padding:0 12px; border:1px solid transparent; border-radius:10px; color:var(--muted); background:transparent; font-weight:700; cursor:pointer; }
 .replay-panel-tabs button.active { color:var(--green-dark); border-color:#acd0c2; background:#e8f3ee; }
@@ -223,3 +226,141 @@ button,a { -webkit-tap-highlight-color:transparent; }
 .replay-moments small { color:var(--muted); font-size:9px; }
 @media (max-width:1050px) { .replay-layout { grid-template-columns:1fr; }.replay-notes { max-height:none; } }
 @media (max-width:620px) { .replay-screen { min-height:330px; }.replay-screen-meta { flex-direction:column; gap:3px; }.speaker-timeline { grid-template-columns:130px 1fr; }.replay-topic-list { grid-template-columns:1fr; }.consent-mode { flex-direction:column; gap:4px; } }
+
+/* Agendas connectés et lancement automatique */
+.calendar-header { align-items:flex-end; }.calendar-connectors { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-bottom:16px; }
+.connector-card { min-height:112px; display:grid; grid-template-columns:52px 1fr auto; gap:14px; align-items:center; padding:20px; border:1px solid var(--line); border-radius:20px; background:#fff; }.connector-card.connected { border-color:#9fc9b8; box-shadow:inset 0 0 0 1px #d8eee5; }.connector-logo { width:52px; height:52px; display:grid; place-items:center; border:1px solid #e3e8e5; border-radius:15px; background:#fff; box-shadow:0 8px 20px #1b332a12; }.connector-logo .platform-logo { width:30px; height:30px; }.connector-card h3 { margin:0 0 4px; font:800 15px "Manrope"; }.connector-card p { margin:0; color:var(--muted); font-size:11px; }
+.automation-rule { display:flex; gap:16px; align-items:flex-start; margin-bottom:16px; padding:18px 20px; border:1px solid #cbe3d9; border-radius:18px; background:#edf7f2; }.automation-rule>span { padding:5px 8px; border-radius:8px; color:#fff; background:var(--green); font-size:9px; font-weight:800; text-transform:uppercase; }.automation-rule strong { font-size:13px; }.automation-rule p { margin:5px 0 0; color:var(--muted); font-size:11px; }.automation-rule code { padding:2px 5px; border-radius:5px; background:#fff; color:var(--green-dark); }
+.microsoft-button { width:100%; min-height:46px; display:flex; align-items:center; justify-content:center; gap:10px; margin-top:10px; border:1px solid #c9cecb; border-radius:12px; color:var(--ink); background:#fff; font-weight:700; text-decoration:none; transition:border-color .2s, box-shadow .2s; }.microsoft-button:hover { border-color:#7f8a85; box-shadow:0 4px 16px #17211d12; }.microsoft-logo { width:18px; height:18px; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:2px; }.microsoft-logo i:nth-child(1) { background:#f25022; }.microsoft-logo i:nth-child(2) { background:#7fba00; }.microsoft-logo i:nth-child(3) { background:#00a4ef; }.microsoft-logo i:nth-child(4) { background:#ffb900; }
+.calendar-list { overflow:hidden; border:1px solid var(--line); border-radius:22px; background:#fff; }.calendar-list>.panel-heading { padding:20px 22px; border-bottom:1px solid var(--line); }.calendar-list>.panel-heading small { color:var(--muted); }.calendar-event { display:grid; grid-template-columns:58px minmax(240px,1.5fr) minmax(180px,.8fr) 125px; gap:16px; align-items:center; padding:16px 22px; border-bottom:1px solid #edf0ed; }.calendar-event:last-child { border-bottom:0; }.calendar-event.cancelled { opacity:.5; }.calendar-date { width:50px; height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:13px; color:var(--green-dark); background:#e6f3ed; }.calendar-date strong { font:800 19px "Manrope"; line-height:1; }.calendar-date span { margin-top:3px; font-size:9px; text-transform:uppercase; }.calendar-event-copy,.consent-count { display:flex; flex-direction:column; min-width:0; }.calendar-event-copy>strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }.calendar-event-copy span,.calendar-event-copy small,.consent-count span { margin-top:4px; color:var(--muted); font-size:10px; }.calendar-event-copy small { color:#a35a38; }.consent-count strong { font-size:11px; }
+.automation-switch { display:grid; grid-template-columns:34px 1fr; grid-template-rows:20px 15px; cursor:pointer; }.automation-switch input { position:absolute; opacity:0; }.automation-switch>span { grid-column:1; width:34px; height:19px; position:relative; border-radius:20px; background:#cbd2ce; transition:.2s; }.automation-switch>span::after { content:""; width:15px; height:15px; position:absolute; top:2px; left:2px; border-radius:50%; background:#fff; transition:.2s; box-shadow:0 2px 5px #0002; }.automation-switch input:checked+span { background:var(--green); }.automation-switch input:checked+span::after { transform:translateX(15px); }.automation-switch em { grid-column:1/3; color:var(--muted); font-size:9px; font-style:normal; }.alert.success { color:#17634f; border-color:#b8d9cb; background:#e8f4ef; }
+@media (max-width:900px) { .calendar-connectors { grid-template-columns:1fr; }.calendar-event { grid-template-columns:50px 1fr 110px; }.consent-count { display:none; } }
+@media (max-width:620px) { .calendar-header { align-items:flex-start; }.calendar-event { grid-template-columns:45px 1fr; }.automation-switch { grid-column:2; }.connector-card { grid-template-columns:45px 1fr; }.connector-logo { width:45px; height:45px; }.connector-card button { grid-column:1/-1; } }
+
+/* Parcours Réunions unifié */
+.meetings-header { align-items:flex-end; }
+.meeting-hub-tabs { width:max-content; display:flex; gap:4px; margin-bottom:18px; padding:5px; border:1px solid var(--line); border-radius:14px; background:#e9eeea; }
+.meeting-hub-tabs button { min-height:38px; padding:0 14px; border:0; border-radius:10px; color:#66716d; background:transparent; font-weight:750; cursor:pointer; }
+.meeting-hub-tabs button.active { color:var(--ink); background:#fff; box-shadow:0 6px 16px #173e3512; }
+.meeting-hub-tabs span { min-width:22px; display:inline-grid; place-items:center; margin-left:6px; padding:2px 6px; border-radius:999px; color:var(--green-dark); background:#dff3eb; font-size:10px; }
+.calendar-summary { min-height:74px; display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:14px; padding:14px 16px; border:1px solid #cfe1d9; border-radius:18px; background:#f0f7f3; }
+.calendar-summary-copy,.calendar-summary-actions { display:flex; align-items:center; gap:12px; }
+.calendar-summary-copy>div { display:flex; flex-direction:column; gap:3px; }
+.calendar-summary-copy small { color:var(--muted); }
+.calendar-summary-actions .text-button { margin:0; }
+.calendar-summary-actions .secondary-button { min-height:40px; }
+.calendar-stack { width:48px; height:42px; position:relative; flex:0 0 auto; }
+.calendar-stack i { width:34px; height:34px; position:absolute; display:grid; place-items:center; border:3px solid #f0f7f3; border-radius:11px; background:#fff; box-shadow:0 4px 12px #1b332a1c; font-style:normal; }
+.calendar-stack i:last-child { right:0; bottom:0; }
+.calendar-stack .platform-logo { width:21px; height:21px; }
+.compact-connectors { margin-bottom:14px; }
+.compact-connectors .connector-card { min-height:90px; padding:15px; }
+.meeting-toolbar { display:grid; grid-template-columns:minmax(260px,1fr) 190px; gap:10px; margin:18px 0; }
+.meeting-search { min-height:46px; display:flex; align-items:center; gap:9px; padding:0 14px; border:1px solid var(--line); border-radius:13px; background:#fff; }
+.meeting-search>span { color:#71807a; font-size:24px; transform:rotate(-20deg); }
+.meeting-search input { width:100%; border:0; outline:0; color:var(--ink); background:transparent; }
+.meeting-filter { min-height:46px; display:grid; grid-template-columns:auto 1fr; align-items:center; gap:8px; padding:0 12px; border:1px solid var(--line); border-radius:13px; color:var(--muted); background:#fff; font-size:11px; font-weight:700; }
+.meeting-filter select { min-width:0; border:0; outline:0; color:var(--ink); background:transparent; font-weight:700; }
+.meeting-groups { display:flex; flex-direction:column; gap:22px; }
+.meeting-day-heading { display:flex; align-items:center; justify-content:space-between; margin:0 3px 9px; }
+.meeting-day-heading h2 { margin:0; font:800 15px "Manrope"; text-transform:capitalize; }
+.meeting-day-heading span { color:var(--muted); font-size:11px; }
+.meeting-cards { overflow:hidden; border:1px solid var(--line); border-radius:19px; background:#fff; box-shadow:0 20px 48px -42px #19352c66; }
+.meeting-card { width:100%; min-height:76px; display:grid; grid-template-columns:66px minmax(200px,1.4fr) minmax(150px,.75fr) 76px; align-items:center; gap:14px; padding:11px 18px; border:0; border-bottom:1px solid #edf0ed; color:var(--ink); background:#fff; text-align:left; }
+.meeting-card:last-child { border-bottom:0; }
+button.meeting-card { cursor:pointer; transition:background .18s; }
+button.meeting-card:hover { background:#f7faf8; }
+.meeting-platform { min-width:54px; min-height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border-radius:13px; color:#255a4d; background:#e4f1eb; }
+.meeting-platform.teams { color:#4c4f9b; background:#e9eafa; }
+.meeting-platform.in_person { color:#8c6338; background:#f3ead8; }
+.meeting-platform .platform-logo { width:25px; height:25px; object-fit:contain; }
+.meeting-platform .platform-fallback { font:800 15px "Manrope"; }
+.meeting-platform small { font-size:9px; }
+.platform-logo { display:block; object-fit:contain; }
+.platform-fallback { display:grid; place-items:center; }
+.platform-pair i { display:grid; place-items:center; background:#fff; }
+.platform-pair .platform-logo { width:22px; height:22px; }
+.calendar-picker-list em { display:flex; align-items:center; gap:6px; }
+.calendar-picker-list em .platform-logo { width:18px; height:18px; }
+.platform-chip { display:inline-flex; align-items:center; gap:6px; }
+.platform-chip .platform-logo { width:16px; height:16px; }
+.meeting-card-copy,.meeting-consent { min-width:0; display:flex; flex-direction:column; gap:4px; }
+.meeting-card-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.meeting-card-copy span,.meeting-consent span { color:var(--muted); font-size:10px; }
+.meeting-consent strong { font-size:11px; }
+.meeting-arrow { color:var(--green); font-size:20px; text-align:right; }
+.load-more { min-height:44px; border:1px solid var(--line); border-radius:13px; color:var(--green-dark); background:#fff; font-weight:750; cursor:pointer; }
+.meeting-empty { box-shadow:none; }
+.meeting-empty .primary-button { width:max-content; margin:18px auto 0; }
+.meeting-view-switch { width:max-content; display:flex; gap:3px; margin:-8px 0 16px auto; padding:4px; border:1px solid var(--line); border-radius:12px; background:#edf1ef; }
+.meeting-view-switch button { min-height:34px; padding:0 13px; border:0; border-radius:9px; color:var(--muted); background:transparent; font-size:11px; font-weight:750; cursor:pointer; }
+.meeting-view-switch button.active { color:var(--ink); background:#fff; box-shadow:0 5px 14px #173e3512; }
+.month-calendar { overflow:hidden; border:1px solid var(--line); border-radius:22px; background:#fff; box-shadow:0 24px 58px -46px #19352c66; }
+.month-calendar-head { min-height:76px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:15px 18px; border-bottom:1px solid var(--line); }
+.month-calendar-head h2 { margin:4px 0 0; font:800 18px "Manrope"; text-transform:capitalize; }
+.month-navigation { display:flex; gap:5px; }
+.month-navigation button { min-width:36px; min-height:36px; padding:0 10px; border:1px solid var(--line); border-radius:10px; color:var(--ink); background:#fff; font-size:11px; font-weight:750; cursor:pointer; }
+.month-navigation button:hover { border-color:#9bb9ad; background:#f5f9f7; }
+.month-scroll { overflow-x:auto; }
+.month-grid { min-width:760px; display:grid; grid-template-columns:repeat(7,1fr); }
+.month-weekday { padding:9px 10px; border-bottom:1px solid var(--line); color:var(--muted); background:#f7f9f8; font-size:10px; font-weight:750; text-align:center; }
+.month-day { min-height:112px; position:relative; padding:9px 7px; border-right:1px solid #edf0ed; border-bottom:1px solid #edf0ed; background:#fff; }
+.month-day:nth-child(7n + 7) { border-right:0; }
+.month-day.outside { background:#fafbfa; }
+.month-day.outside .month-day-number { color:#aeb6b2; }
+.month-day.today { background:#f5faf7; box-shadow:inset 0 0 0 1px #8dbbaa; }
+.month-day-number { width:25px; height:25px; display:grid; place-items:center; margin-left:auto; border-radius:8px; color:#47534e; font-size:10px; font-weight:800; }
+.month-day.today .month-day-number { color:#fff; background:var(--green); }
+.month-day-events { display:flex; flex-direction:column; gap:4px; margin-top:5px; }
+.month-event { min-width:0; display:grid; grid-template-columns:34px 1fr; gap:4px; padding:5px 6px; border:0; border-radius:7px; color:#1f5548; background:#e5f2ec; text-align:left; cursor:pointer; }
+.month-event.teams { color:#4e519e; background:#e9eafa; }
+.month-event:hover { filter:brightness(.97); }
+.month-event span { font-size:8px; font-variant-numeric:tabular-nums; }
+.month-event strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px; }
+.month-day-events>small { padding-left:5px; color:var(--muted); font-size:8px; }
+.calendar-event-panel { min-height:84px; display:grid; grid-template-columns:58px minmax(0,1fr) 48px 36px; gap:14px; align-items:center; padding:14px 18px; border-top:1px solid var(--line); background:#f7faf8; }
+.calendar-event-panel-copy { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.calendar-event-panel-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.calendar-event-panel-copy span,.calendar-event-panel-copy small { color:var(--muted); font-size:10px; }
+
+/* Sélecteur compact utilisé lors de l'invitation du bot */
+.calendar-picker { margin-bottom:14px; padding:16px; border:1px solid #d4e2dc; border-radius:16px; background:#f2f8f5; }
+.calendar-picker .field { margin:0 0 10px; }
+.calendar-picker-list { overflow:hidden; border:1px solid var(--line); border-radius:13px; background:#fff; }
+.calendar-picker-list>button { width:100%; min-height:55px; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:10px 12px; border:0; border-bottom:1px solid #edf0ed; color:var(--ink); background:#fff; text-align:left; cursor:pointer; }
+.calendar-picker-list>button:last-child { border-bottom:0; }
+.calendar-picker-list>button:hover { background:#f5f9f7; }
+.calendar-picker-list>button span { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.calendar-picker-list strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.calendar-picker-list small,.calendar-picker-list em,.picker-hint { color:var(--muted); font-size:10px; }
+.calendar-picker-list em { padding:4px 7px; border-radius:7px; background:#edf2ef; font-style:normal; font-weight:700; }
+.calendar-picker-list>p { padding:10px 12px; }
+.picker-hint { display:block; margin-top:8px; }
+
+/* L'onglet Teams s'appuie sur sa propre barre d'onglets native. */
+.teams-shell { display:block; }
+.teams-shell .sidebar { display:none; }
+.teams-shell .main-content { max-width:1280px; padding:28px 32px; }
+html[data-teams-theme="dark"] { --ink:#f4f6f5; --muted:#b2bbb7; --line:#3d4844; --panel:#242b29; background:#1f2523; }
+html[data-teams-theme="dark"] body { background:#1f2523; }
+html[data-teams-theme="dark"] .teams-shell :is(.content-card,.dashboard-panel,.meeting-cards,.meeting-card,.meeting-search,.meeting-filter,.calendar-picker-list,.calendar-picker-list>button) { color:var(--ink); border-color:var(--line); background:#242b29; }
+
+@media (max-width:760px) {
+  .meetings-header,.calendar-summary { align-items:flex-start; flex-direction:column; }
+  .calendar-summary-actions { width:100%; justify-content:flex-end; }
+  .meeting-toolbar { grid-template-columns:1fr; }
+  .meeting-card { grid-template-columns:56px minmax(0,1fr) 72px; }
+  .meeting-consent { display:none; }
+  .teams-shell .main-content { padding:22px 16px; }
+  .meeting-view-switch { margin-top:0; }
+  .month-calendar-head { align-items:flex-start; flex-direction:column; }
+  .calendar-event-panel { grid-template-columns:52px minmax(0,1fr) 36px; }
+  .calendar-event-panel .automation-switch { grid-column:2; }
+}
+@media (max-width:480px) {
+  .meeting-hub-tabs { width:100%; }
+  .meeting-hub-tabs button { flex:1; }
+  .meeting-card { grid-template-columns:50px minmax(0,1fr); padding:10px 12px; }
+  .meeting-card .automation-switch,.meeting-card .status,.meeting-arrow { grid-column:2; }
+  .history-meeting .status { display:none; }
+}
